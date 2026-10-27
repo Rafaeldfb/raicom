@@ -28,7 +28,11 @@ export const CatalogSchema = z.strictObject({
   bundles: z.array(BundleSchema),
 });
 
-export type ProductInput = z.infer<typeof ProductSchema>;
-export type ComponentInput = z.infer<typeof ComponentSchema>;
-export type BundleInput = z.infer<typeof BundleSchema>;
-export type CatalogInput = z.infer<typeof CatalogSchema>;
+export type ProductInput = z.input<typeof ProductSchema>;
+export type ProductOutput = z.output<typeof ProductSchema>;
+export type ComponentInput = z.input<typeof ComponentSchema>;
+export type ComponentOutput = z.output<typeof ComponentSchema>;
+export type BundleInput = z.input<typeof BundleSchema>;
+export type BundleOutput = z.output<typeof BundleSchema>;
+export type CatalogInput = z.input<typeof CatalogSchema>;
+export type CatalogOutput = z.output<typeof CatalogSchema>;

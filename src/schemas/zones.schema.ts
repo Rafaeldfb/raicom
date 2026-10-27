@@ -1,9 +1,9 @@
 import { z } from "zod";
 import { WarehouseCodeSchema } from "./warehouse.schema";
+import { ZipPrefixSchema } from "./zip.schema";
 
-export const ZipPrefixSchema = z.string().regex(/^[0-9]{3}$/, {
-  message: "ZIP prefix must contain exactly three ASCII digits",
-});
+export { ZipPrefixSchema } from "./zip.schema";
+export type { ZipPrefixInput, ZipPrefixOutput } from "./zip.schema";
 
 export const ZoneSchema = z.number().int().min(1).max(8);
 export const WarehouseZonesSchema = z.record(ZipPrefixSchema, ZoneSchema);
@@ -34,7 +34,9 @@ export const ZonesSchema = z
     }
   });
 
-export type ZipPrefixInput = z.infer<typeof ZipPrefixSchema>;
-export type ZoneInput = z.infer<typeof ZoneSchema>;
-export type WarehouseZonesInput = z.infer<typeof WarehouseZonesSchema>;
-export type ZonesInput = z.infer<typeof ZonesSchema>;
+export type ZoneInput = z.input<typeof ZoneSchema>;
+export type ZoneOutput = z.output<typeof ZoneSchema>;
+export type WarehouseZonesInput = z.input<typeof WarehouseZonesSchema>;
+export type WarehouseZonesOutput = z.output<typeof WarehouseZonesSchema>;
+export type ZonesInput = z.input<typeof ZonesSchema>;
+export type ZonesOutput = z.output<typeof ZonesSchema>;

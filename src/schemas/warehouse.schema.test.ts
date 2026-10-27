@@ -1,10 +1,13 @@
 import { readFileSync } from "node:fs";
-import { describe, expect, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
 import {
   InventoryEntrySchema,
   WarehouseSchema,
   WarehousesSchema,
+  type WarehouseInput,
+  type WarehouseOutput,
 } from "./warehouse.schema";
+import type { Sku } from "./sku.schema";
 
 const entry = { available: 400, dailyVelocity: 40 };
 const warehouse = {
@@ -36,7 +39,7 @@ describe("WarehousesSchema", () => {
 });
 
 describe("WarehouseSchema", () => {
-  it("preserves identifiers, text, SKU keys, and the disabled flag", () => {
+  it("normalizes SKU keys while preserving warehouse fields and inventory", () => {
     const input = {
       ...warehouse,
       code: " WH-NJ ",
@@ -44,7 +47,14 @@ describe("WarehouseSchema", () => {
       enabled: false,
       inventory: { " nw-mag-90 ": { available: 0, dailyVelocity: 0 } },
     };
-    expect(WarehouseSchema.parse(input)).toEqual(input);
+    const output = WarehouseSchema.parse(input);
+    expect(output).toEqual({
+      ...input,
+      inventory: { " NW-MAG-90 ": { available: 0, dailyVelocity: 0 } },
+    });
+    expect(Object.keys(input.inventory)).toEqual([" nw-mag-90 "]);
+    expectTypeOf<keyof WarehouseInput["inventory"]>().toEqualTypeOf<string>();
+    expectTypeOf<keyof WarehouseOutput["inventory"]>().toEqualTypeOf<Sku>();
   });
 
   it("accepts an empty inventory without checking catalog coverage", () => {

@@ -1,8 +1,18 @@
 import { z } from "zod";
+import { normalizeSku } from "../normalization/sku";
 
-// Preserve the supplied text while the normalization policy remains open.
-export const SkuSchema = z.string().refine((value) => value.trim().length > 0, {
-  message: "SKU must not be blank",
-});
+export const CanonicalSkuSchema = z
+  .string()
+  .refine((value) => value.trim().length > 0, {
+    message: "SKU must not be blank",
+  })
+  .uppercase()
+  .brand<"Sku">();
 
-export type SkuInput = z.infer<typeof SkuSchema>;
+export const SkuSchema = z
+  .string()
+  .transform(normalizeSku)
+  .pipe(CanonicalSkuSchema);
+
+export type SkuInput = z.input<typeof SkuSchema>;
+export type Sku = z.output<typeof SkuSchema>;

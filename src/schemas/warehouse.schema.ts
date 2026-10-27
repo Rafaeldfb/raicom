@@ -25,7 +25,11 @@ export const WarehouseSchema = z.strictObject({
 
 export const WarehousesSchema = z.array(WarehouseSchema);
 
-export type WarehouseCodeInput = z.infer<typeof WarehouseCodeSchema>;
-export type InventoryEntryInput = z.infer<typeof InventoryEntrySchema>;
-export type WarehouseInput = z.infer<typeof WarehouseSchema>;
-export type WarehousesInput = z.infer<typeof WarehousesSchema>;
+export type WarehouseCodeInput = z.input<typeof WarehouseCodeSchema>;
+export type WarehouseCodeOutput = z.output<typeof WarehouseCodeSchema>;
+export type InventoryEntryInput = z.input<typeof InventoryEntrySchema>;
+export type InventoryEntryOutput = z.output<typeof InventoryEntrySchema>;
+export type WarehouseInput = z.input<typeof WarehouseSchema>;
+export type WarehouseOutput = z.output<typeof WarehouseSchema>;
+export type WarehousesInput = z.input<typeof WarehousesSchema>;
+export type WarehousesOutput = z.output<typeof WarehousesSchema>;

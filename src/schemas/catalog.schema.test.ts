@@ -1,11 +1,14 @@
 import { readFileSync } from "node:fs";
-import { describe, expect, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
 import {
   BundleSchema,
   CatalogSchema,
   ComponentSchema,
   ProductSchema,
+  type ProductInput,
+  type ProductOutput,
 } from "./catalog.schema";
+import type { Sku } from "./sku.schema";
 
 const product = {
   sku: "NW-VITD-60",
@@ -60,6 +63,15 @@ describe("CatalogSchema", () => {
 });
 
 describe("ProductSchema", () => {
+  it("normalizes product SKUs and exposes distinct input/output types", () => {
+    const input: ProductInput = { ...product, sku: "nw-vitd-60" };
+    const output: ProductOutput = ProductSchema.parse(input);
+    expect(output).toEqual(product);
+    expect(input.sku).toBe("nw-vitd-60");
+    expectTypeOf<ProductInput["sku"]>().toEqualTypeOf<string>();
+    expectTypeOf<ProductOutput["sku"]>().toEqualTypeOf<Sku>();
+  });
+
   it("accepts a zero price and preserves surrounding name whitespace", () => {
     const input = { ...product, name: " Vitamin D ", priceCents: 0 };
     expect(ProductSchema.parse(input)).toEqual(input);
@@ -80,12 +92,17 @@ describe("ProductSchema", () => {
 });
 
 describe("BundleSchema", () => {
-  it("keeps component quantities intact without expanding or normalizing", () => {
+  it("normalizes bundle and component SKUs without expanding quantities", () => {
     const input = {
       ...bundle,
+      sku: "nw-bndl-ess",
       components: [{ sku: " nw-mag-90 ", quantity: 2 }],
     };
-    expect(BundleSchema.parse(input)).toEqual(input);
+    expect(BundleSchema.parse(input)).toEqual({
+      ...bundle,
+      components: [{ sku: " NW-MAG-90 ", quantity: 2 }],
+    });
+    expect(input.components[0].sku).toBe(" nw-mag-90 ");
   });
 
   it("requires at least one component", () => {
