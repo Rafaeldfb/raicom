@@ -47,3 +47,53 @@ After discussing ZIP-handling options, Rafael chose to keep ZIP handling, SKU ma
 After discussing input loading and proposing a layered layout, Rafael authorized creation of that structure with empty source and test files. He selected Bun in place of Node as the application runtime, kept pnpm for dependency management, and requested TypeScript 6, Vitest, Zod, and an architecture document. Codex created the scaffold, including the empty routing-output placeholder, initialized pnpm, and installed TypeScript 6.0.3, Vitest 5.0.5, Zod 4.6.7, and Bun type definitions.
 
 Codex saved the responsibilities and intended data flow in [docs/ARCHTECTURE.md](docs/ARCHTECTURE.md), added its entry to the project index, and recorded the accepted structure and tools in [DECISIONS.md](DECISIONS.md). Verification confirmed all 23 source and test files are empty, the dataset copies are unchanged, local documentation links resolve, and the typecheck command succeeds under Bun. A temporary Vitest runner check passed under Node; direct Bun runs timed out, so Vitest currently uses Node tooling. No application tests or routing behavior have been implemented or verified, and the three behavioral questions remain open.
+
+## 11 — Exploring catalog input contracts before implementation
+
+Rafael asked to start data-layer design by understanding the incoming shapes and assessing whether Zod's complexity is appropriate, despite its earlier inclusion in the scaffold. He first requested confirmation of scope, then agreed to compare the catalog using TypeScript declarations and a Zod contract, with documentation only. Codex reviewed the supplied catalog and official TypeScript and Zod guidance, explaining static typing, runtime checks, inferred input types, error handling, and unknown-property behavior.
+
+The [architecture document](docs/ARCHTECTURE.md#catalog-input-contract-exploration) now contains illustrative alternatives and their trade-offs. Codex recommended a small schema with inferred input types as a [proposal](DECISIONS.md#catalog-input-contract-approach), not an accepted decision. No source files, datasets, or dependencies were changed; ZIP handling, SKU matching, and bundle stock handling remain open.
+
+## 12 — Adopting Zod and modeling bounded catalog acceptance
+
+Rafael accepted Zod input contracts after the comparison and directed that schemas allow reasonable, field-specific input variation without accepting arbitrary data. Codex recorded the adoption and bounded-permissiveness principle in [DECISIONS.md](DECISIONS.md), then revisited the catalog, whose supplied field types are consistent and do not currently require string/number unions.
+
+The [catalog model](docs/ARCHTECTURE.md#catalog-contract) now proposes record shapes, value constraints, and unknown-field behavior for Rafael to review. It distinguishes meaningful small values such as component quantity `1` from malformed input and leaves identifier grammar unspecified rather than inventing it. The detailed constraints remain proposals; no source code was implemented, and ZIP handling, SKU matching, and bundle stock handling remain open.
+
+## 13 — Implementing composed catalog contracts
+
+Rafael agreed with the catalog model, identified SKU as a reusable concept, and directed work on this first dataset through small composable contracts. He retained the no-conversion baseline while explicitly leaving the normalization rules and their placement open, including the possibility of a Zod transformation or a separate stage after validation. Codex implemented a reusable nonblank SKU contract and composed product, component, bundle, and catalog contracts with inferred input types.
+
+Codex added adjacent tests and verified that all 39 focused catalog and SKU tests pass and the Bun-based TypeScript check succeeds. The tests cover the supplied catalog, malformed input, strict object fields, numeric constraints, and preservation of accepted text and casing. Documentation now records the accepted contract and current implementation status. File loading, normalization, bundle stock handling, and routing remain unimplemented; the full suite was not run while the earlier domain and normalization test modules remain empty placeholders. No datasets, dependencies, or staged content were changed.
+
+## 14 — Implementing the warehouse contract before zones
+
+Rafael considered the catalog result good enough to continue and requested warehouse and zone contracts one per turn, allowing Codex to pause for questions when necessary. Codex implemented only the warehouse contract, composing strict warehouse and inventory-entry objects with a reusable warehouse-code sub-contract and the existing SKU contract for inventory keys. It preserves flags and input text, accepts the supplied zero values, and treats stock as an integer count and daily velocity as a nonnegative rate that can include fractions.
+
+All 74 implemented schema tests pass, including 35 warehouse cases, and the Bun-based TypeScript check succeeds. The architecture document records the contract's guarantees and limits, including that fractional velocities are an implementation interpretation rather than a supplied example. Zones remain untouched; file loading, normalization, inventory calculations, and routing are outside this step.
+
+## 15 — Implementing the zones contract
+
+Rafael asked to continue with zones after the warehouse step. Codex composed the contract from three-digit lookup-prefix strings, integer zone values from 1 through 8, and warehouse maps using the existing warehouse-code contract. The schema preserves `_note` as string metadata and requires all remaining entries to be valid warehouse maps, retaining the raw layout and leading zeros without normalization.
+
+All 116 implemented schema tests pass, including 42 new zone cases, and the Bun-based TypeScript check succeeds. The architecture document explains the mixed metadata/map structure and the distinction between lookup-prefix validation and the still-open customer ZIP policy. No order schema, loader, cross-file consistency checks, or routing behavior was implemented in this step.
+
+## 16 — Modeling order events separately from orders
+
+Rafael directed the next schema step and clarified that the input records are order events rather than final order entities. Codex implemented separate strict creation and edit contracts combined through the `type` discriminator, with shared order-number, timestamp, destination, and item-line sub-contracts. Raw ZIP values, absent ZIP representation, SKU casing, event order, and bundle lines are preserved without reconstruction or normalization.
+
+All 170 implemented schema tests pass, including 54 new order-event cases, and the Bun-based TypeScript check succeeds. The architecture documents the structural acceptance rules, including timezone-aware timestamp strings and null as an additional representation of absent ZIP input, and distinguishes these from the deferred postal policy. The event/entity distinction is recorded in DECISIONS.md. No loader, order reconstruction, edit-window enforcement, normalization, or routing was implemented.
+
+## 17 — Independent schema review and assessment of findings
+
+Rafael requested a sub-agent code review and asked the main agent to judge its findings with explicit justification. The reviewer inspected the implemented schemas, tests, documentation, and supplied inputs, independently confirming that all 170 schema tests and typechecking pass. It reported one P2 edge case involving silently discarded `__proto__` dictionary entries and no other actionable findings.
+
+The main agent reproduced the issue in warehouse inventory and the zones root, accepted its correctness, and lowered the priority to P3 because the supplied assessment inputs are unaffected. The [known limitation](docs/ARCHTECTURE.md#known-review-limitations) records the impact and suggested correction. Source files remain unchanged by the review; accepting the finding does not mean a fix has been implemented. The deferred behavioral policies and application implementation remain outside the review scope.
+
+## 18 — Reviewing and relocating the shared raw loader
+
+A side-conversation agent created a guarded raw JSON loader and tests in `data/`, returning `unknown` without schema validation or normalization. The main agent independently confirmed 186 passing loader/schema tests, the remaining direct-schema bypass, and a reproducible TS2591 import diagnostic when the loader was compiled without runtime type declarations. It also confirmed that the project typecheck excluded the two loader files.
+
+Rafael accepted documenting the guarded parsing boundary and the rejection of `__proto__`, `constructor`, and `prototype` as object keys. He explicitly deferred additional guards for direct schema calls and selected `src/lib/loader/` for the shared module and tests. Codex moved the existing files, adjusted all four dataset URLs and test imports, and recorded the [ingestion policy](docs/ARCHTECTURE.md#guarded-json-ingestion) and architecture decision without changing schemas or loader behavior.
+
+All 186 focused tests pass after relocation. Both loader files are now included in the normal project typecheck, which passes with the existing Bun declarations and unchanged import. A Bun smoke check launched from `/tmp` successfully loaded all four datasets, confirming working-directory-independent paths. The TypeScript editor UI was not inspected. The datasets, dependency/configuration files, deferred behavioral policies, and staged content remain unchanged.

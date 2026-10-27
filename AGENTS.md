@@ -18,7 +18,7 @@ Use this index to select context for the current task; do not load every documen
 
 ### Project structure and architecture
 
-The accepted project shape, layer responsibilities, intended data flow, and development tooling. Read before placing code or changing module boundaries; the source and test files are currently empty and the three behavioral questions remain open.
+The accepted project shape, layer responsibilities, intended data flow, development tooling, and implementation status. Read before placing code or changing module boundaries. Consult its guarded JSON ingestion section when connecting loaders and schemas; the three behavioral questions remain open.
 
 [docs/ARCHTECTURE.md](docs/ARCHTECTURE.md)
 
