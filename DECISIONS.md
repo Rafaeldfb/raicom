@@ -36,11 +36,11 @@ The input-contract approach was subsequently reviewed through the catalog compar
 
 ## Catalog field constraints
 
-**Decision:** Require product and bundle arrays, string identifiers and names, nonnegative integer numeric prices, and positive integer numeric component quantities. Reject unknown object fields and blank identifiers/names. Require at least one component per bundle; permit empty root product and bundle arrays. Preserve accepted values without coercion, trimming, or case changes.
+**Decision:** Require product and bundle arrays, string identifiers and names, nonnegative integer numeric prices, and positive integer numeric component quantities. Reject unknown object fields and blank identifiers/names. Require at least one component per bundle; permit empty root product and bundle arrays. Preserve accepted values without coercion or trimming, except for the subsequently adopted uppercase SKU transformation below.
 
 **Rationale:** Rafael agreed with the catalog model and directed work on this first dataset. The supplied field types are consistent, so no string/number unions are needed here. No identifier grammar or fixed catalog size is inferred from the sample. See [the catalog contract](docs/ARCHTECTURE.md#catalog-contract) for details.
 
-SKU normalization remains a future concern. Rafael left open whether it should run through a Zod transformation or after validation; exact rules and case-insensitive matching remain undecided.
+The original no-case-change baseline has been superseded for SKUs by [uppercase normalization](ASSUMPTIONS.md#canonical-uppercase-sku-identifiers). Other field constraints remain unchanged.
 
 ## Order-event input model
 
@@ -60,6 +60,39 @@ SKU normalization remains a future concern. Rafael left open whether it should r
 
 **Rationale:** Rafael accepted the current coverage and broader reserved-key policy, explaining that `constructor` and `prototype` are not expected SKU keys. Guarded parsing prevents the reviewed silent key loss along the loader path. The restriction concerns object keys, not string values; it does not establish a new SKU value grammar or normalization rule. See [the ingestion boundary](docs/ARCHTECTURE.md#guarded-json-ingestion).
 
+## SKU transformation at the input boundary
+
+**Decision:** Keep uppercase conversion in a pure function in `src/normalization/sku.ts`, composed by a Zod input contract through `.transform(normalizeSku).pipe(CanonicalSkuSchema)`. Infer accepted source types with `z.input` and canonical output types with `z.output`; use a branded SKU output to distinguish validated canonical identifiers from arbitrary strings. Keep these small contracts in the existing schema layer, with domain consumers using type-only imports where appropriate. Omit additional collision refinements under Rafael's [supplied-data assumption](ASSUMPTIONS.md#no-distinct-sku-collisions-after-normalization).
+
+**Rationale:** Rafael approved Zod transformations to keep this boundary simple and reusable. A separate normalization stage remains a viable alternative but requires callers to remember it. Uppercase conversion alone still infers `string` on both sides; branding supplies a static distinction and does not replace runtime checks. The canonical contract enforces nonblank uppercase strings, preserving the existing acceptance breadth and whitespace behavior without inventing an abbreviation grammar. Schema-derived types avoid duplication at the cost of compile-time coupling to the contracts.
+
+Parsed catalog records and order events remain boundary data; normalization does not reconstruct complete domain orders or prove catalog membership. The earlier collision-rejection recommendation was not adopted. Additional error/result abstractions suggested in the linked discussion are outside this decision. See [schema guidance](docs/schemas.md) for implementation conventions and [ASSUMPTIONS.md](ASSUMPTIONS.md#open-questions) for remaining behavioral questions.
+
+## Separate postal assessment from source ZIP
+
+**Decision:** Preserve source JSON and the original input object while producing a separate normalized output. Every parsed destination requires string `shipTo.zip`. Derive assessment only when `shipTo.country === "US"`, using the raw ZIP type before text conversion. For recognized US destinations, put the normalized string in output `zip`; assessment contains only kind and prefix. Missing/null/omitted values become `""`; unrecognized and outside-US values become text without postal repair. Preserve country and state. Outside-US assessment remains explicit null.
+
+```ts
+type PostalAssessmentOutput =
+  | { kind: "recognized"; prefix: ZipPrefix }
+  | { kind: "missing" }
+  | { kind: "unrecognized" };
+```
+
+Recognized output ZIPs are checked through `ZipValueSchema`, retaining complete supported ZIP+4 strings. Their assessment prefix must match output ZIP's first three digits. For example, raw numeric `2134` becomes output `zip: "02134"` with `postalAssessment: { kind: "recognized", prefix: "021" }`, while the input object remains unchanged. `ShipToOutput.zip` is statically `string` across all branches; standalone `ZipValue` and assessment prefixes retain their branded types. Representation conversion applies only after raw structural validation and never adds recognition or repair rules.
+
+**Implementation status:** The [shared ZIP contracts](src/schemas/zip.schema.ts) reject a duplicated assessment value. The pure US helper returns output ZIP and assessment together; a separate pure text helper serves outside-US representation without invoking US recognition. The destination transform composes strict raw validation, country gating, output conversion, and output checks. Prefix correspondence is now checked against sibling output `zip`. Compatibility exports and raw recognition rules are preserved.
+
+Do not use `state` for ZIP inference or cross-checks, normalize country, or trim ZIP strings. Apply the [accepted numeric and string recognition rules](ASSUMPTIONS.md#zip-recognition-and-repair-by-raw-type). US country context establishes applicability, not ZIP correctness. Postal verification, zone lookup, PARTNER selection, and warehouse eligibility/ranking remain outside the assessment and are not implemented here.
+
+**Rationale:** Rafael identified duplication between ZIP and assessment, clarified that parsed output should be normalized, and authorized changing the implementation after confirming the complete string representation. Source preservation and transformed-output preservation are different requirements. This supersedes the earlier raw-valued parsed ZIP contract while retaining exact country matching, no trimming, bounded numeric repair, missing/unrecognized classification, and country bypass. Consume parsed output rather than reparse it as raw source input.
+
+## Routing responsibility and downstream fulfillment
+
+**Decision:** Scope this application to routing from the essential data in supplied events, preserving source postal information and deriving only the postal assessment needed by routing. Keep complete-address retrieval, postal correction/verification, and physical fulfillment in downstream systems under the [partial-event/downstream-lookup assumption](ASSUMPTIONS.md#partial-events-and-downstream-delivery-details).
+
+**Rationale:** Rafael separates selecting a responsible warehouse from obtaining a complete shipping address and carrying out delivery. This keeps the assessment proportional to its routing rules without inventing integration work. The assumed downstream use of `orderNumber` is not evidence that a lookup service exists, and this decision does not authorize building one.
+
 ## Proposals
 
-No additional engineering proposals awaiting acceptance are recorded here. The deferred behavioral questions remain in [ASSUMPTIONS.md](ASSUMPTIONS.md#open-questions).
+No additional engineering proposals awaiting acceptance are recorded here. Remaining behavioral questions are in [ASSUMPTIONS.md](ASSUMPTIONS.md#open-questions).

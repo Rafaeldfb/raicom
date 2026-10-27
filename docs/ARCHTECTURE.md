@@ -4,11 +4,13 @@
 
 Rafael selected this structure while exploring the application's responsibilities and data flow. The application will use TypeScript 6 and Bun, with pnpm managing dependencies, Zod checking incoming data structures, and Vitest providing the test runner.
 
-The catalog, order-event, warehouse, zone, and reusable SKU contracts are implemented with adjacent unit tests. A raw JSON loader and its tests live in `src/lib/loader/`. Other source and test modules remain empty placeholders. `tests/` contains an empty `.gitkeep` to retain the directory in Git. `routes.txt` is an empty output placeholder, not a generated routing result. The following responsibilities describe the intended application.
+The catalog, order-event, warehouse, zone, SKU, and postal contracts are implemented with adjacent unit tests. A raw JSON loader and its tests live in `src/lib/loader/`; pure SKU and ZIP normalization functions and tests live in `src/normalization/`. Other source and test modules remain empty placeholders. `tests/` contains an empty `.gitkeep` to retain the directory in Git. `routes.txt` is an empty output placeholder, not a generated routing result. The following responsibilities describe the intended application.
 
-ZIP handling, SKU matching, and bundle stock handling remain [open questions](../ASSUMPTIONS.md#open-questions). Structural input validation does not select those policies; normalization and bundle stock expansion remain unimplemented.
+Rafael selected [case-insensitive SKUs and uppercase normalization](../ASSUMPTIONS.md#canonical-uppercase-sku-identifiers), implemented through the shared SKU contract. The [separate postal assessment](../DECISIONS.md#separate-postal-assessment-from-source-zip) is implemented for exact `"US"` destinations without ZIP trimming. Remaining SKU rules and bundle stock handling remain [open questions](../ASSUMPTIONS.md#open-questions); bundle stock expansion remains unimplemented.
 
-Rafael accepted Zod runtime input contracts with inferred TypeScript input types and small reusable sub-contracts. The catalog rules below are implemented with bounded, field-specific acceptance and no automatic conversion. SKU normalization rules and placement remain open.
+Every parsed destination now has string `shipTo.zip`: recognized US ZIPs use their normalized value; missing values become empty text; unrecognized and outside-US values become text without postal repair. Assessment contains no duplicated value. Source JSON, original input objects, and loader cache remain unchanged.
+
+Rafael accepted Zod runtime input contracts with explicit inferred TypeScript input/output types and small reusable sub-contracts. The catalog rules below use bounded, field-specific acceptance. SKU conversion and country-aware postal assessment run through schema transformations; see [schema patterns](schemas.md) for the maintained coding guidance.
 
 ## Project structure
 
@@ -49,6 +51,8 @@ raicom/
 │   │   ├── catalog.schema.test.ts
 │   │   ├── sku.schema.ts
 │   │   ├── sku.schema.test.ts
+│   │   ├── zip.schema.ts
+│   │   ├── zip.schema.test.ts
 │   │   ├── warehouse.schema.ts
 │   │   ├── warehouse.schema.test.ts
 │   │   ├── zones.schema.ts
@@ -62,7 +66,8 @@ raicom/
 │   └── .gitkeep
 ├── docs/
 │   ├── ARCHTECTURE.md
-│   └── data-research.md
+│   ├── data-research.md
+│   └── schemas.md
 ├── .gitignore
 ├── AGENTS.md
 ├── package.json
@@ -85,10 +90,10 @@ This tree focuses on the application and supporting documents. The supplied orig
 | `src/router.ts` | Executable entry point: establish file locations, invoke the application workflow, and report its outcome. |
 | `src/application/route-orders.ts` | Coordinate input loading, complete-order reconstruction, item interpretation, sequential routing with inventory state, and output writing. |
 | `src/domain/` | Internal types and business rules for orders, catalog items, warehouses, inventory, and routing results. |
-| `src/repositories/` | Input repositories will coordinate the shared loader and schema validation, with normalization placement still open. The routes repository will format and write results. Repository modules remain placeholders. |
-| `src/schemas/` | Zod schemas for the shapes and types of incoming data. Runtime checks complement TypeScript's static types. |
-| `src/normalization/` | Functions for accepted transformations of input representations. ZIP and SKU policies remain deferred. |
-| Adjacent `*.test.ts` files | Focused unit tests for the modules beside them. Input-contract and loader tests are implemented; the earlier domain and normalization test placeholders remain empty. |
+| `src/repositories/` | Input repositories will coordinate the shared loader and schema validation/transformation. The routes repository will format and write results. Repository modules remain placeholders. |
+| `src/schemas/` | Zod schemas for incoming data and canonical output. Compose SKU conversion and country-aware postal assessment at this boundary. |
+| `src/normalization/` | Pure SKU conversion and US ZIP assessment without runtime Zod imports, country/state logic, lookups, or file access. |
+| Adjacent `*.test.ts` files | Focused unit tests for implemented contracts, loader, and both normalization helpers. Domain tests remain empty placeholders. |
 | `tests/` | Integration tests covering collaboration between modules and the complete output, once implemented. |
 | `routes.txt` | Eventual textual routing output, with one line per order. Currently empty. |
 
@@ -110,13 +115,25 @@ flowchart TD
 
 The interpretation, selection, and reservation steps run sequentially for each order. Later orders see inventory after earlier reservations. The diagram does not specify the deferred normalization or bundle policies.
 
-Normalization placement in this diagram is illustrative. Rafael left open whether SKU normalization will be a Zod transformation or a separate stage after validation. The current contracts preserve accepted values without either form of normalization.
+The diagram separates validation and normalization conceptually. Composed Zod contracts perform SKU conversion and country-aware postal assessment. Neither transformation implements order reconstruction, zone lookup, or bundle rules.
+
+### SKU normalization design status
+
+The implemented boundary composes a pure uppercase function with a nonblank uppercase canonical SKU contract, exposing `z.input` and `z.output` types. Its [engineering decision](../DECISIONS.md#sku-transformation-at-the-input-boundary) accepts branded output and omits collision refinements under the [supplied-data assumption](../ASSUMPTIONS.md#no-distinct-sku-collisions-after-normalization). Whitespace remains unchanged; complete identifier grammar and unknown-SKU behavior remain open. See [schema patterns](schemas.md) before extending these contracts.
+
+### Postal assessment design status
+
+The implemented `ShipToSchema` preserves original input objects and returns a separate destination with required string `zip` and `postalAssessment`. Only `country === "US"` invokes the US helper on the raw ZIP type before text conversion. Other destinations use pure text conversion and receive null assessment without US repair. The separate international routing rule remains for later application/domain composition; there is no international assessment branch.
+
+The [implemented output revision](../DECISIONS.md#separate-postal-assessment-from-source-zip) stores the normalized recognized string directly in output `zip`, with assessment containing only kind and prefix. Missing/null/omitted values become `""`; other unrecognized or outside-US values become text without additional postal repair. Numeric `2134` and string `"2134"` retain different US recognition outcomes. These transformations do not change the raw recognition rules.
+
+Recognized ZIPs retain the full supported five-digit or ZIP+4 string, validated through the canonical scalar contract, and assessment carries a matching branded prefix. Destination output ZIP is statically string across all branches. The [recognition policy](../ASSUMPTIONS.md#zip-recognition-and-repair-by-raw-type) rejects padded/whitespace-only strings without trimming. State is preserved without ZIP inference or cross-checking; country is not normalized. US country context does not establish ZIP correctness. Zone lookup, warehouse eligibility/ranking, and PARTNER selection remain outside assessment. The raw ZIP contract still preserves source representations; derived fields and normalized strings are never written into input objects, raw JSON, or loader cache.
 
 ### Input loading
 
-Repositories will coordinate raw loading and schema validation. The shared loader reads and parses the JSON, returning `unknown`; a separate consumer applies the schema. Normalization can be added once its rules and placement are accepted. Schemas describe incoming representations; domain types describe the concepts used by later processing.
+Repositories will coordinate raw loading and schema validation. The shared loader reads and parses the JSON, returning `unknown`; a separate consumer applies the composed schema and uses its parsed output. Schemas expose explicit input/output types; later domain code can consume output types through type-only imports. Repository and service composition remain the next stage.
 
-Loading preserves the evidence needed for unresolved policies. A numeric ZIP, an SKU with different casing, and a bundle line must not be silently repaired or reinterpreted while those policies remain open. Missing or empty ZIPs must remain representable for later order-level handling. File failures and structural diagnostics should identify their source; the exact failure-handling policy remains to be designed.
+Raw loading preserves source values, including numeric ZIPs, SKU casing, and bundle lines. Schema parsing produces normalized SKU and ZIP strings while leaving source data untouched and preserving bundle quantities. Missing ZIP becomes empty output text and an appropriate US assessment or outside-US null. File failures and structural diagnostics should identify their source; the exact failure-handling policy remains to be designed.
 
 The orders repository reads events. It does not hide complete-order reconstruction inside file access. The zones schema distinguishes warehouse maps from metadata such as `_note`.
 
@@ -222,7 +239,7 @@ For this catalog, the schema structure is shallow and closely follows the suppli
 
 If an internal domain model later differs from these records, it can have its own type and mapping. Schema inference need not dictate the entire domain design.
 
-The eventual repository would read text, parse JSON into an untrusted value, check the chosen contract, and return the accepted input records. Order reconstruction, normalization policy, bundle stock handling, and routing remain outside this catalog implementation. Catalog acceptance rules are now implemented; file loading and application-level error handling remain to be designed.
+The eventual repository will use the guarded loader, check and transform the chosen contract, and return its typed output records. Catalog acceptance rules, SKU conversion, and raw loading are implemented; repository integration and application-level error handling remain to be designed. Order reconstruction, bundle stock handling, and routing remain outside this catalog implementation.
 
 ### Accepted principle: bounded permissiveness
 
@@ -234,7 +251,7 @@ Plausibility also depends on the field. A standalone scalar cannot represent the
 
 ### Catalog contract
 
-Rafael accepted the model and asked to proceed with this dataset using reusable sub-contracts. The implementation is in [catalog.schema.ts](../src/schemas/catalog.schema.ts), with [sku.schema.ts](../src/schemas/sku.schema.ts) shared across product, bundle, and component records. Local name, price, and quantity sub-contracts complete the composition. Exported input types are inferred from the schemas.
+Rafael accepted the model and asked to proceed with this dataset using reusable sub-contracts. The implementation is in [catalog.schema.ts](../src/schemas/catalog.schema.ts), with [sku.schema.ts](../src/schemas/sku.schema.ts) shared across product, bundle, and component records. Local name, price, and quantity sub-contracts complete the composition. Exported input and output types use `z.input` and `z.output` respectively.
 
 | Location | Accepted shape | Constraints |
 |---|---|---|
@@ -242,16 +259,16 @@ Rafael accepted the model and asked to proceed with this dataset using reusable 
 | Product | Object with `sku`, `name`, and `priceCents` | All fields required; reject unknown object fields. |
 | Bundle | Product-shaped fields plus a `components` array | All fields required; at least one component; reject unknown object fields. |
 | Component | Object with `sku` and `quantity` | Both fields required; reject unknown object fields. |
-| Any `sku` | String | Reject empty or whitespace-only text; retain original text and casing. No project-specific identifier grammar has been selected. |
+| Any `sku` | String input; branded `Sku` output | Reject empty or whitespace-only text; uppercase while preserving whitespace. No project-specific identifier grammar has been selected. |
 | Any `name` | String | Reject empty or whitespace-only text; retain original text. No arbitrary minimum name length. |
 | `priceCents` | Number | Integer, zero or greater. Numeric strings, fractions, negatives, null, and booleans are rejected. Allowing a zero price is an adopted constraint, not a finding from the sample. |
 | `quantity` | Number | Positive integer. A quantity of `1` is valid; numeric strings, fractions, zero, negatives, null, and booleans are rejected. |
 
-The root product and bundle arrays may be empty; no minimum catalog size is inferred from the sample. The contract rejects unknown keys and enforces the accepted value bounds and nonempty bundle components without introducing coercion, trimming, SKU case changes, or bundle expansion.
+The root product and bundle arrays may be empty; no minimum catalog size is inferred from the sample. The contract rejects unknown keys and enforces the accepted value bounds and nonempty bundle components. SKU case conversion is explicit; no numeric coercion, trimming, or bundle expansion is introduced.
 
-Nonblank text alone does not prove that an SKU is meaningful. A value such as `A` would still satisfy that basic string constraint. Rejecting it requires an agreed identifier grammar or another explicit identifier rule; neither has been invented from the sample. SKU uniqueness and component-reference checks likewise remain separate from the basic record shape. These are model-design details and do not resolve case-insensitive matching or bundle stock handling.
+Nonblank uppercase text alone does not prove that an SKU is meaningful. A value such as `A` still satisfies that basic constraint. Rejecting it requires an agreed identifier grammar or another explicit identifier rule; neither has been invented from the sample. SKU uniqueness and component-reference checks remain separate from the basic record shape. Case-insensitive comparison is accepted; bundle stock handling remains open.
 
-Focused tests cover the supplied catalog, malformed structures, unknown keys at every object level, numeric bounds and types, nonblank text, and preservation of accepted SKU values. They do not establish file-loading, inventory, or routing behavior.
+Focused tests cover the supplied catalog, malformed structures, unknown keys at every object level, numeric bounds and types, nonblank text, SKU conversion, and unchanged source objects and unrelated values. They do not establish inventory or routing behavior.
 
 ## Warehouse input contract
 
@@ -270,7 +287,7 @@ Rafael requested warehouse and zone schemas one per turn. [warehouse.schema.ts](
 
 Fractional velocity is an implementation interpretation of a rate, not a variation observed in the supplied file, whose velocities are integers. Zero velocity is directly present in the supplied data. The contract accepts it without defining days-of-cover division or ranking behavior.
 
-Strictness applies to the fixed warehouse and inventory-entry fields; inventory SKU names are intentionally dynamic and use the reusable nonblank SKU contract. The schema does not normalize these names, check their membership in the catalog, require every catalog product, or enforce unique warehouse codes. Those concerns are outside this structural contract.
+Strictness applies to the fixed warehouse and inventory-entry fields; inventory SKU names are dynamic and use the shared SKU transformation. The schema uppercases keys without collision checks under the accepted assessment assumption. It does not check catalog membership, require every catalog product, or enforce unique warehouse codes.
 
 The schema implementation does not alter warehouse enablement, compute cover, reserve inventory, or load files. The [warehouse tests](../src/schemas/warehouse.schema.test.ts) check the supplied data, strict fields, malformed types and keys, numeric boundaries, and preservation of accepted values.
 
@@ -290,7 +307,7 @@ The raw root combines a string with dictionary values. The schema declares `_not
 
 No extra metadata names are accepted as strings. Other nonblank keys can represent warehouse maps; matching those codes to the warehouse dataset and checking prefix coverage across maps are separate cross-file concerns. An object containing only `_note` is structurally representable, consistent with allowing empty dataset collections.
 
-These prefix checks apply only to keys in the supplied lookup table. They do not select a policy for customer ZIP formats, the numeric `2134`, or destination normalization. The [zone tests](../src/schemas/zones.schema.test.ts) cover the supplied table, preserved metadata and keys, malformed maps, invalid prefixes, and zone bounds. File loading and routing remain outside this contract.
+The prefix contract is shared with postal assessment through [zip.schema.ts](../src/schemas/zip.schema.ts) and re-exported from the zones module for compatibility. Lookup keys remain exact three-digit strings without repair; their output types are now branded. The [zone tests](../src/schemas/zones.schema.test.ts) cover the supplied table, preserved metadata and keys, malformed maps, invalid prefixes, and zone bounds. File loading and routing remain outside this contract.
 
 ## Order-event input contract
 
@@ -308,12 +325,14 @@ Both variants compose a shared event base. Order lines share the reusable `SkuSc
 | `orderNumber` | Nonblank string, preserved without a fixed number grammar. |
 | `at` | ISO datetime string with an explicit timezone (`Z` or an offset), preserved as a string. Invalid dates and timezone-free values are rejected. |
 | `shipTo.country`, `shipTo.state` | Required nonblank strings. No hardcoded country/state whitelist or case normalization. |
-| `shipTo.zip` | Raw string or finite number; an absent field or null is also representable. No postal-format validation or numeric repair. |
-| Line `sku` | Shared nonblank string contract; no case changes, membership checks, or bundle expansion. |
+| Input `shipTo.zip` | Raw string or finite number; an absent field or null is also representable. Recognition uses this raw type. |
+| Output `shipTo.zip` | Required string. Recognized US ZIP is normalized, missing becomes `""`, and other values become text without postal repair. |
+| Output `shipTo.postalAssessment` | Strict recognized/missing/unrecognized assessment for exact `"US"`, or null otherwise. Recognized assessment contains only kind and branded prefix, checked against output ZIP. Source-supplied derived fields are rejected. |
+| Line `sku` | Shared contract uppercases nonblank strings and brands the output; no membership checks or bundle expansion. |
 | Line `quantity` | Positive integer number; no numeric-string coercion. |
 | Root | Array of events, including an empty array; no fixed event count. |
 
-The raw ZIP contract deliberately preserves the source representations, including numeric `2134`, empty strings, ZIP+4, and international postal codes. Null is additionally allowed as a representation of absent input, not an observed example from this file. An omitted ZIP receives no default. Structural acceptance is not a finding that a postal code is valid, and does not settle its eventual routing treatment.
+The raw ZIP contract preserves source representations, including numeric `2134`, empty strings, ZIP+4, and international postal codes. Null is additionally allowed as absent input, not an observed example from this file. The parsed output always supplies a string ZIP and a country-aware assessment under the [accepted policy](../ASSUMPTIONS.md#zip-recognition-and-repair-by-raw-type). Structural errors reject unsupported raw types before output conversion; supported unusable US representations remain available for later fallback. Neither recognition nor structural acceptance proves postal validity. Strict output object checks preserve raw unknown-field diagnostics; see the [schema guide](schemas.md#country-aware-postal-assessment) before changing the pipeline.
 
 Parsing does not reconstruct orders, combine lines, sort events, check uniqueness or creation/edit relationships, or enforce the edit window. Those concerns belong to later processing. Inferred event types allow application code to distinguish creation from edit fields using `type`, while keeping the reconstructed order concept separate.
 
@@ -357,7 +376,8 @@ Dependencies are recorded in [package.json](../package.json) and resolved versio
 | `pnpm typecheck` | Run TypeScript's no-emit check using Bun and the project configuration. |
 | `pnpm test src/schemas` | Run the implemented catalog, order-event, warehouse, zone, and SKU contract tests. |
 | `pnpm test src/schemas src/lib/loader` | Run all implemented input-contract and loader tests. |
-| `pnpm test` | Invoke all Vitest suites once, including the earlier empty domain and normalization test placeholders. Full-suite verification is deferred while those modules remain placeholders. |
+| `pnpm test src/schemas src/lib/loader src/normalization` | Run all implemented input-contract, loader, and SKU/ZIP normalization tests. |
+| `pnpm test` | Invoke all Vitest suites once, including empty domain test placeholders. Full-suite verification is deferred while those modules remain placeholders. |
 
 Node must be available for pnpm and Vitest tooling. Bun runs the application and the TypeScript compiler command. The installed Bun version is 1.3.14; the available Node tooling version is 22.15.0.
 
@@ -368,6 +388,7 @@ The [Bun runtime documentation](https://bun.sh/docs/runtime) describes direct Ty
 ## Related project knowledge
 
 - [Data research](data-research.md): observed input shapes, counts, relationships, and data-quality findings.
+- [Schema patterns](schemas.md): maintained guidance for Zod composition, transformations, inferred types, and guarded ingestion.
 - [Assumptions](../ASSUMPTIONS.md): adopted behavioral interpretations and separate open questions.
 - [Decisions](../DECISIONS.md): accepted engineering choices and their rationale.
 - [Journal](../JOURNAL.md): chronology, collaboration, and verification.

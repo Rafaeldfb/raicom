@@ -18,9 +18,15 @@ Use this index to select context for the current task; do not load every documen
 
 ### Project structure and architecture
 
-The accepted project shape, layer responsibilities, intended data flow, development tooling, and implementation status. Read before placing code or changing module boundaries. Consult its guarded JSON ingestion section when connecting loaders and schemas; the three behavioral questions remain open.
+The accepted project shape, layer responsibilities, intended data flow, development tooling, and implementation status. Read before placing code or changing module boundaries. Consult its guarded JSON ingestion section when connecting loaders and schemas, and its normalization design status before assuming a proposed policy is implemented.
 
 [docs/ARCHTECTURE.md](docs/ARCHTECTURE.md)
+
+### Schema contracts and normalization patterns
+
+The conventions for composing Zod contracts, guarded ingestion, input/output types, branded SKUs and postal values, transformations, and focused tests. Read before adding or consuming schemas, changing normalization, or treating parsed records as domain entities. Distinguishes immutable source data from normalized output, including string ZIPs and recognition based on raw input types.
+
+[docs/schemas.md](docs/schemas.md)
 
 ### Input data research
 
