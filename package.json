@@ -1,0 +1,20 @@
+{
+  "name": "raicom",
+  "version": "1.0.0",
+  "scripts": {
+    "start": "bun run src/router.ts",
+    "typecheck": "bun node_modules/typescript/bin/tsc --noEmit",
+    "test": "vitest run"
+  },
+  "packageManager": "pnpm@10.11.0",
+  "type": "module",
+  "devDependencies": {
+    "@types/bun": "^1.4.4",
+    "typescript": "^6.0.3",
+    "vitest": "^5.0.5"
+  },
+  "dependencies": {
+    "zod": "^4.6.7"
+  },
+  "private": true
+}
