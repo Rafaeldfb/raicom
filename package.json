@@ -4,7 +4,10 @@
   "scripts": {
     "start": "bun run src/router.ts",
     "typecheck": "bun node_modules/typescript/bin/tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:unit": "vitest run src",
+    "test:integration": "vitest run tests",
+    "test:all": "pnpm run test:unit && pnpm run test:integration"
   },
   "packageManager": "pnpm@10.11.0",
   "type": "module",
