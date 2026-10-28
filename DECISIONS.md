@@ -6,7 +6,7 @@ Rafael's accepted engineering choices that materially affect the solution or its
 
 **Decision:** Adopt Rafael's proposed layout separating application coordination, domain rules, file repositories, input schemas, and normalization, with adjacent unit tests and a separate integration-test directory. Establish empty files first.
 
-**Rationale:** The boundaries make the data flow and ownership of each responsibility explicit during architectural design. The current task establishes the structure while ZIP, SKU, and bundle policies remain unresolved. See [the architecture document](docs/ARCHTECTURE.md) for the full layout and responsibilities.
+**Rationale:** The boundaries make data flow and ownership explicit. Empty files were established first while behavioral policies were explored; the later decisions below refine normalization and the direction of repository access. See [the architecture document](docs/ARCHTECTURE.md) for current responsibilities and implementation status.
 
 ## Runtime and development tools
 
@@ -93,6 +93,30 @@ Do not use `state` for ZIP inference or cross-checks, normalize country, or trim
 
 **Rationale:** Rafael separates selecting a responsible warehouse from obtaining a complete shipping address and carrying out delivery. This keeps the assessment proportional to its routing rules without inventing integration work. The assumed downstream use of `orderNumber` is not evidence that a lookup service exists, and this decision does not authorize building one.
 
+## Incremental routing development from CLI acceptance
+
+**Decision:** Develop Part A incrementally through a readable coordinator, named domain functions, and focused tests, progressing until a supported application integration scenario passes. The initial CLI test was replaced after Rafael selected raw TypeScript fixtures supplied through mocked loaders. All repositories, schemas, domain functions, coordinator, and output formatting remain real in this test. Expected output stays independently established.
+
+**Rationale:** Rafael wants the assessment rules visible while retaining incremental development and unresolved policies. A handwritten synthetic scenario with [independent calculations](tests/fixtures/cli-routing/README.md) supplied the first completion signal. Empty ranking lists reach fallback, and reservation precedes the next order. After adopting the bundle interpretation below, coverage expanded to bundle scenarios, the real supplied datasets with independently calculated final stock, and the actual `pnpm start` CLI path.
+
+## Domain access to repositories and run-local routing context
+
+**Decision:** Use the dependency flow CLI → application → domain → repositories → loaders and schemas. `routeOrders()` accepts no source arguments and imports only domain modules. Domain initialization calls parameterless repositories and returns parsed events, catalog, zones, and inventory in a fresh `RoutingContext`. The coordinator carries inventory updates through this context and publishes through a domain function that delegates to the routes repository.
+
+**Rationale:** Rafael corrected the previous coordinator's source and repository ownership. Repositories encapsulate ingestion through their respective existing loaders; source paths stay below the domain layer. A context per run avoids global mutable stock and explicit reset machinery. Domain rule functions can still evaluate supplied in-memory records; this design needs neither a service class per rule nor a dependency-injection framework. Repository references to domain output types remain type-only, avoiding a runtime import cycle.
+
+## Component-based bundle fulfillment
+
+**Decision:** Implement the [adopted component-stock interpretation](ASSUMPTIONS.md#bundle-stock-from-standalone-components) in `domain/catalog.ts`'s existing `resolveOrderProducts`. Multiply each component quantity by the requested bundle quantity, then aggregate all demand for the same canonical product. Keep original reconstructed order lines unchanged. Feed the same flat product demand to eligibility, existing cover calculation, and reservation at one warehouse.
+
+**Routing constraints:** Apply all seven [Part A rules](INSTRUCTIONS.md#part-a-order-router-about-40-minutes) unchanged. Reconstruct complete orders with eligible additions and process them in creation order. Country and accepted postal checks precede expansion. Retain enabled warehouses able to supply every expanded product, then retain the lowest zone before considering cover. Among zone ties, maximize minimum component-product `available / dailyVelocity` using pre-reservation stock; resolve remaining ties with WH-NJ, WH-GA, WH-NV, WH-TX. Preserve empty candidates through selection and apply PARTNER fallback when none qualify. Reserve the aggregated components only at the selected warehouse before the next order; PARTNER outcomes reserve no internal stock. Expansion changes demand, not zone values, rule precedence, or the cover formula.
+
+**Example and boundary:** Two `NW-BNDL-ESS` plus one direct `NW-VITD-60` become three vitamin D and two magnesium units. The same aggregation includes eligible edit additions. Repositories continue loading and parsing; schemas continue validating structure and accepted normalization. The existing catalog domain function performs cross-record interpretation without changing original order lines or source JSON. A known component absent from a warehouse's stock makes that warehouse ineligible; a component absent from the standalone product catalog is an unsupported reference rather than an inventory shortage.
+
+**Rationale:** The catalog explicitly defines bundle components, while every warehouse stocks only standalone products and supplies no bundle stock or velocity. Component interpretation uses those supplied values without inventing a separate inventory model. Restrict expansion to components referencing standalone catalog products; nested bundles and unknown references fail explicitly rather than trigger recursive resolution or silently disappear. General unknown-SKU routing behavior remains open. A dedicated bundle-stock model would need additional inventory data.
+
+**Implementation status:** Rafael authorized completing the work using the consolidated bundle understanding. Domain tests, bundle application scenarios, real-file routing/final-stock checks, and a real CLI test pass. The [supplied-data expected output](tests/fixtures/assessment/expected.txt) and [manual ledger](tests/fixtures/assessment/README.md) were established before implementing expansion and are independent of application output. `routes.txt` captures the matching verified CLI output. No recursive bundle resolution, source-data mutation, repository/configuration changes, or new dependencies were introduced.
+
 ## Proposals
 
-No additional engineering proposals awaiting acceptance are recorded here. Remaining behavioral questions are in [ASSUMPTIONS.md](ASSUMPTIONS.md#open-questions).
+No additional engineering proposals awaiting acceptance are recorded here. Remaining SKU questions are in [ASSUMPTIONS.md](ASSUMPTIONS.md#open-questions).

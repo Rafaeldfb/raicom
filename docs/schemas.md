@@ -11,7 +11,7 @@ guarded loader → unknown value → Zod validation and accepted transformations
                → typed output → application/domain processing
 ```
 
-The [loader](../src/lib/loader/Loader.ts) reads and guards JSON, caches raw values, and returns independent copies typed as `unknown`. It does not invoke schemas or normalization. Input repositories will coordinate these steps; they remain placeholders.
+The [loader](../src/lib/loader/Loader.ts) reads and guards JSON, caches raw values, and returns independent copies typed as `unknown`. It does not invoke schemas or normalization. Parameterless input repositories call their respective loader, apply the composed schema once, and return parsed output. Domain initialization obtains these outputs to create a fresh routing context; the coordinator uses only domain functions and accepts no sources.
 
 Use the guarded loader or `parseJson` before Zod. Plain `JSON.parse`, whether nested inside a schema call or used earlier, bypasses the reserved-key policy. The existing guard rejects `__proto__`, `constructor`, and `prototype` as object keys. Direct schema calls do not supply that protection; see the [known limitation](ARCHTECTURE.md#known-review-limitations).
 
@@ -23,13 +23,13 @@ const result = CatalogSchema.safeParse(rawCatalog);
 
 if (result.success) {
   const catalog = result.data; // Validated output, including canonical SKUs.
-  // Pass catalog to the next application step.
+  // Return the parsed catalog from this repository boundary.
 } else {
   // Preserve result.error.issues for the caller's error handling.
 }
 ```
 
-Use `.safeParse()` when the caller needs an explicit success/error branch. `.parse()` is appropriate when the caller deliberately handles a thrown validation error. Do not catch validation failures and silently replace them with empty data. Application-wide error presentation remains to be designed.
+Use `.safeParse()` when the caller needs an explicit success/error branch. Repositories use `.parse()` and propagate failures through the application to the CLI's error reporting. Do not catch validation failures and silently replace them with empty data or routing fallback.
 
 ## Compose contracts from shared concepts
 
@@ -45,7 +45,11 @@ Export `*Input` aliases using `z.input<typeof Schema>` and `*Output` aliases usi
 
 These are inferred TypeScript types, not an alternative to runtime parsing. Untrusted loader values remain `unknown` until validated. Avoid duplicate hand-written declarations and casts that pretend a raw value is validated. Domain consumers can import output types with `import type`; this keeps runtime Zod parsing at the boundary while accepting compile-time coupling to the inferred contracts.
 
-Output records are not automatically complete domain entities. An `OrderEventOutput` remains an event; order reconstruction, catalog membership checks, inventory rules, and routing are later responsibilities.
+Output records are not automatically complete domain entities. An `OrderEventOutput` remains an event; domain functions handle reconstruction, catalog membership checks, inventory rules, and routing after ingestion.
+
+Event timestamps remain ISO strings with explicit timezone, including arbitrary fractional-second precision accepted by the current contract. Domain ordering and edit-window comparisons must retain those digits; converting the complete timestamp through `Date.parse` alone truncates them to milliseconds. The order domain compares whole seconds and decimal fractions separately. Do not narrow the schema's precision to accommodate a comparison implementation.
+
+Bundle expansion belongs in `domain/catalog.ts`, after complete-order reconstruction. The resolver uses parsed catalog relationships to multiply and aggregate component demand; it does not add a Zod transformation or change source order lines. Current support is one level with standalone-product references. Unknown or nested component references fail explicitly. All routing rules, including lowest zone before cover, consume the resulting product demand unchanged.
 
 ## Transform accepted representations into canonical values
 
@@ -125,4 +129,4 @@ Domain consumers can use output types through type-only imports. Parse raw input
 
 Keep unit tests beside contracts and normalization functions. Cover supported representations, rejected types and values, canonical output, unchanged unrelated fields, and preservation of source objects. Check shared behavior through catalog records, both event variants, and inventory keys; a standalone helper test does not prove composition. Type assertions should verify that raw strings and branded outputs differ under `pnpm typecheck`.
 
-Use `pnpm test src/schemas src/lib/loader src/normalization` for the implemented boundary and normalization tests, followed by `pnpm typecheck`. Empty domain test placeholders still prevent treating the full suite as verified. Fixture-only schema tests that use `JSON.parse` isolate contracts; the loader integration test verifies guarded ingestion, supplied ZIP cases, and raw cache preservation.
+Use `pnpm test src/schemas src/lib/loader src/normalization` for boundary and normalization tests, followed by `pnpm typecheck`. The full `pnpm test` suite includes domain, repository, and coordinator tests. Synthetic application integration mocks only dataset loaders with raw TypeScript objects, so it exercises real schema transformations but does not exercise guarded file parsing. Existing loader tests verify guarded ingestion and raw cache preservation. Real-file application and CLI tests now cover the supplied datasets separately; their expected results were calculated independently before implementing bundle expansion.

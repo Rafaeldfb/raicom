@@ -52,11 +52,16 @@ There is no international assessment branch. A destination whose country is not 
 
 **Basis and effect:** Rafael adopted this product assumption in the relayed side conversation because the supplied events omit address lines. The downstream lookup and data ownership arrangement are assumed, not verified capabilities or integrations in the supplied resources. They justify limiting this application to routing from the available event data while preserving source postal information. No lookup or shipping integration is implemented or authorized by this assumption.
 
+## Bundle stock from standalone components
+
+**Assumption:** Treat a requested bundle as demand for its catalog components, not as a separately stocked item. Multiply bundle quantity by each component quantity and aggregate the result with direct product lines, other bundle lines, and eligible edit additions. All required products must be fulfilled and reserved at one warehouse under the existing seven routing rules.
+
+**Basis and effect:** The catalog defines `NW-BNDL-ESS` as one `NW-VITD-60` plus one `NW-MAG-90`, while warehouses provide only standalone-product stock and velocity. After reviewing the proposal and lowest-zone precedence, Rafael authorized finishing the implementation with this interpretation. Two bundles plus one direct vitamin D therefore require three vitamin D and two magnesium units. The implemented domain resolver preserves original order lines; schemas and source JSON remain unchanged. See [the engineering decision](DECISIONS.md#component-based-bundle-fulfillment) for the one-level boundary and [supplied-data expectations](tests/fixtures/assessment/README.md) for the resulting routing ledger.
+
 ## Open questions
 
 The data investigation below supplies evidence for discussion, not accepted interpretations.
 
 - **Remaining SKU policy:** A complete identifier grammar, any future surrounding-whitespace normalization, and treatment of identifiers absent from the catalog remain open. The current contract uppercases nonblank strings while preserving whitespace. Supplied examples do not all have three-letter product abbreviations or numeric endings (`VITD`, `MULTI`, and bundle suffix `ESS` are present). Transformation placement and the decision to omit collision refinements are settled above and in [DECISIONS.md](DECISIONS.md#sku-transformation-at-the-input-boundary).
-- **Bundle stock handling:** Orders `#2040` and `#2056` request `NW-BNDL-ESS`. The catalog defines it as one `NW-VITD-60` plus one `NW-MAG-90`; warehouses stock those products and have no bundle inventory entry. How the router translates bundle quantities into stock checks and reservations has not yet been adopted.
 
 Sources: [orders](data/orders.json), [catalog](data/catalog.json), [warehouses](data/warehouses.json), and [zones](data/zones.json).

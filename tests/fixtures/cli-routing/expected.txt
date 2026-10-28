@@ -1,0 +1,16 @@
+#A1	WH-GA	zone=2
+#A2	WH-NV	zone=1
+#A3	WH-GA	zone=1
+#A4	WH-NJ	zone=2
+#A5	PARTNER	insufficient-stock
+#A6	WH-NJ	zone=4
+#A7	PARTNER	insufficient-stock
+#A8	WH-GA	zone=2
+#A9	WH-GA	zone=2
+#A10	WH-NJ	zone=2
+#A11	PARTNER	outside-us
+#A12	PARTNER	missing-zip
+#A13	PARTNER	unrecognized-zip
+#A14	PARTNER	unmapped-prefix
+#A15	WH-NJ	zone=1
+#A16	WH-GA	zone=2

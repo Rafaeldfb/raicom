@@ -4,9 +4,9 @@
 
 Rafael selected this structure while exploring the application's responsibilities and data flow. The application will use TypeScript 6 and Bun, with pnpm managing dependencies, Zod checking incoming data structures, and Vitest providing the test runner.
 
-The catalog, order-event, warehouse, zone, SKU, and postal contracts are implemented with adjacent unit tests. A raw JSON loader and its tests live in `src/lib/loader/`; pure SKU and ZIP normalization functions and tests live in `src/normalization/`. Other source and test modules remain empty placeholders. `tests/` contains an empty `.gitkeep` to retain the directory in Git. `routes.txt` is an empty output placeholder, not a generated routing result. The following responsibilities describe the intended application.
+The catalog, order-event, warehouse, zone, SKU, and postal contracts are implemented with adjacent unit tests. The raw JSON loader lives in `src/lib/loader/`; pure normalization helpers live in `src/normalization/`. Parameterless repositories return parsed output to the domain, which creates a fresh routing context. The argument-free coordinator uses only domain functions to reconstruct, expand bundles, select, reserve, and publish routes. Synthetic scenarios and the real `pnpm start` path pass against independent expected output. `routes.txt` contains the verified 26-order output for the supplied datasets. General unknown-SKU behavior remains explicitly unimplemented.
 
-Rafael selected [case-insensitive SKUs and uppercase normalization](../ASSUMPTIONS.md#canonical-uppercase-sku-identifiers), implemented through the shared SKU contract. The [separate postal assessment](../DECISIONS.md#separate-postal-assessment-from-source-zip) is implemented for exact `"US"` destinations without ZIP trimming. Remaining SKU rules and bundle stock handling remain [open questions](../ASSUMPTIONS.md#open-questions); bundle stock expansion remains unimplemented.
+Rafael selected [case-insensitive SKUs and uppercase normalization](../ASSUMPTIONS.md#canonical-uppercase-sku-identifiers), implemented through the shared SKU contract. The [separate postal assessment](../DECISIONS.md#separate-postal-assessment-from-source-zip) applies to exact `"US"` destinations without ZIP trimming. [Bundle stock interpretation](../ASSUMPTIONS.md#bundle-stock-from-standalone-components) is now adopted and implemented; remaining SKU questions stay [open](../ASSUMPTIONS.md#open-questions).
 
 Every parsed destination now has string `shipTo.zip`: recognized US ZIPs use their normalized value; missing values become empty text; unrecognized and outside-US values become text without postal repair. Assessment contains no duplicated value. Source JSON, original input objects, and loader cache remain unchanged.
 
@@ -28,7 +28,8 @@ raicom/
 │   │       ├── Loader.ts
 │   │       └── Loader.test.ts
 │   ├── application/
-│   │   └── route-orders.ts
+│   │   ├── route-orders.ts
+│   │   └── route-orders.test.ts
 │   ├── domain/
 │   │   ├── order.ts
 │   │   ├── order.test.ts
@@ -37,13 +38,16 @@ raicom/
 │   │   ├── warehouse.ts
 │   │   ├── warehouse.test.ts
 │   │   ├── routing.ts
+│   │   ├── routing-context.test.ts
 │   │   └── routing.test.ts
 │   ├── repositories/
 │   │   ├── orders.repository.ts
 │   │   ├── catalog.repository.ts
 │   │   ├── warehouses.repository.ts
 │   │   ├── zones.repository.ts
-│   │   └── routes.repository.ts
+│   │   ├── routes.repository.ts
+│   │   ├── routes.repository.test.ts
+│   │   └── ingestion.test.ts
 │   ├── schemas/
 │   │   ├── order.schema.ts
 │   │   ├── order.schema.test.ts
@@ -63,7 +67,19 @@ raicom/
 │       ├── sku.ts
 │       └── sku.test.ts
 ├── tests/
-│   └── .gitkeep
+│   ├── .gitkeep
+│   ├── route-orders.integration.test.ts
+│   ├── bundle-routing.integration.test.ts
+│   ├── assessment.integration.test.ts
+│   ├── router.cli.test.ts
+│   └── fixtures/
+│       ├── cli-routing/          # Original standalone synthetic scenario
+│       │   ├── README.md
+│       │   ├── expected.txt
+│       │   └── fixtures.ts
+│       └── assessment/           # Independent supplied-data oracle and ledger
+│           ├── README.md
+│           └── expected.txt
 ├── docs/
 │   ├── ARCHTECTURE.md
 │   ├── data-research.md
@@ -87,17 +103,27 @@ This tree focuses on the application and supporting documents. The supplied orig
 |---|---|
 | `data/` | Unmodified working copies of the supplied JSON datasets, ready for ingestion. |
 | `src/lib/loader/` | Shared raw JSON reading, guarded parsing, lazy caching, and independent copies for callers. Returns `unknown` without Zod validation or normalization. |
-| `src/router.ts` | Executable entry point: establish file locations, invoke the application workflow, and report its outcome. |
-| `src/application/route-orders.ts` | Coordinate input loading, complete-order reconstruction, item interpretation, sequential routing with inventory state, and output writing. |
-| `src/domain/` | Internal types and business rules for orders, catalog items, warehouses, inventory, and routing results. |
-| `src/repositories/` | Input repositories will coordinate the shared loader and schema validation/transformation. The routes repository will format and write results. Repository modules remain placeholders. |
+| `src/router.ts` | Bun entry point: invoke `routeOrders()` and report execution failures to stderr with a nonzero exit. It contains no source paths. |
+| `src/application/route-orders.ts` | Compose domain functions to reconstruct and sort orders, visibly apply rules 1–7, reserve before the next order, and publish results. No arguments, repository imports, or source configuration. |
+| `src/domain/` | Obtain repository data and create a run-local context; evaluate reconstruction, product, selection, and reservation rules. Publication delegates to the output repository. |
+| `src/repositories/` | Parameterless input functions call the respective existing loaders, parse once with Zod, and return normalized objects. The routes repository formats structured results and prints stdout. |
 | `src/schemas/` | Zod schemas for incoming data and canonical output. Compose SKU conversion and country-aware postal assessment at this boundary. |
 | `src/normalization/` | Pure SKU conversion and US ZIP assessment without runtime Zod imports, country/state logic, lookups, or file access. |
-| Adjacent `*.test.ts` files | Focused unit tests for implemented contracts, loader, and both normalization helpers. Domain tests remain empty placeholders. |
-| `tests/` | Integration tests covering collaboration between modules and the complete output, once implemented. |
-| `routes.txt` | Eventual textual routing output, with one line per order. Currently empty. |
+| Adjacent `*.test.ts` files | Focused tests for contracts, loaders, normalization, repository boundaries, domain behavior, and application sequencing. |
+| `tests/` | Synthetic application integration with only loaders mocked, plus real-file application/final-stock verification and a real `pnpm start` subprocess test. Expected results are independently established. |
+| `routes.txt` | Captured CLI output for all 26 supplied orders; checked byte-for-byte against the independent expected output. |
 
 Use small modules and plain functions. The folder boundaries do not require a class, interface, or dependency-injection framework for each responsibility.
+
+### Incremental Part A development
+
+Rafael corrected the initial skeleton's ownership of sources and directed implementation in seven sequential deliverables. The dependency flow is **CLI → application → domain → repositories → loaders and schemas**. The coordinator reconstructs orders with eligible additions, sorts by creation time, then performs sequential selection and reservation. Country and postal checks return early for each order. Ranking preserves empty lists and priority returns `undefined` for an empty list, reaching rule 7.
+
+`routeOrders(): Promise<RoutingResult[]>` imports only domain functions and types. `prepareRoutingRun()` obtains parsed events, catalog, zones, and warehouses through parameterless repositories and returns `RoutingContext`; it retains no mutable state between runs. Source URLs remain in the existing loader configuration. Rules consume the parsed context, and the coordinator assigns the new `reserveStock` inventory before advancing. `publishRoutes()` delegates output to the routes repository. No service classes or dependency-injection framework are required.
+
+Run `pnpm test tests` for the application and CLI scenarios. The [original synthetic fixture](../tests/fixtures/cli-routing/README.md) and [supplied-data ledger](../tests/fixtures/assessment/README.md) record independent calculations; never regenerate expected results from application output. Synthetic tests substitute raw TypeScript objects only at the loader boundary. `assessment.integration.test.ts` uses real files and checks final stock/cache preservation; `router.cli.test.ts` invokes `pnpm --silent start`, checking exact output and empty stderr. No temporary project, environment override, or source argument is needed.
+
+Bundle expansion was implemented from failing domain and integration tests after Rafael adopted the policy. All 26 supplied orders now route successfully. General unknown-SKU behavior still throws a named `not implemented` error; nested bundles and unknown component references produce explicit unsupported-component errors. Duplicate creation and unmatched-edit reconciliation also remain explicitly unsupported. These cases are absent from the supplied dataset and do not acquire invented routing policies.
 
 ## Data flow
 
@@ -113,7 +139,7 @@ flowchart TD
     H --> I["Format and write routing results"]
 ```
 
-The interpretation, selection, and reservation steps run sequentially for each order. Later orders see inventory after earlier reservations. The diagram does not specify the deferred normalization or bundle policies.
+The interpretation, selection, and reservation steps run sequentially for each order. Later orders see inventory after earlier reservations. Bundle interpretation expands component quantities before stock eligibility without changing zone precedence.
 
 The diagram separates validation and normalization conceptually. Composed Zod contracts perform SKU conversion and country-aware postal assessment. Neither transformation implements order reconstruction, zone lookup, or bundle rules.
 
@@ -123,7 +149,7 @@ The implemented boundary composes a pure uppercase function with a nonblank uppe
 
 ### Postal assessment design status
 
-The implemented `ShipToSchema` preserves original input objects and returns a separate destination with required string `zip` and `postalAssessment`. Only `country === "US"` invokes the US helper on the raw ZIP type before text conversion. Other destinations use pure text conversion and receive null assessment without US repair. The separate international routing rule remains for later application/domain composition; there is no international assessment branch.
+The implemented `ShipToSchema` preserves original input objects and returns a separate destination with required string `zip` and `postalAssessment`. Only `country === "US"` invokes the US helper on the raw ZIP type before text conversion. Other destinations use pure text conversion and receive null assessment without US repair. The domain's international routing check applies before postal coverage; there is no international assessment branch.
 
 The [implemented output revision](../DECISIONS.md#separate-postal-assessment-from-source-zip) stores the normalized recognized string directly in output `zip`, with assessment containing only kind and prefix. Missing/null/omitted values become `""`; other unrecognized or outside-US values become text without additional postal repair. Numeric `2134` and string `"2134"` retain different US recognition outcomes. These transformations do not change the raw recognition rules.
 
@@ -131,23 +157,25 @@ Recognized ZIPs retain the full supported five-digit or ZIP+4 string, validated 
 
 ### Input loading
 
-Repositories will coordinate raw loading and schema validation. The shared loader reads and parses the JSON, returning `unknown`; a separate consumer applies the composed schema and uses its parsed output. Schemas expose explicit input/output types; later domain code can consume output types through type-only imports. Repository and service composition remain the next stage.
+Repositories coordinate raw loading and schema validation. Each parameterless input repository calls its respective loader, receives `unknown`, applies its composed schema, and returns typed parsed output. Domain initialization calls the repositories once per run. Schema outputs are consumed rather than reparsed as raw input.
 
-Raw loading preserves source values, including numeric ZIPs, SKU casing, and bundle lines. Schema parsing produces normalized SKU and ZIP strings while leaving source data untouched and preserving bundle quantities. Missing ZIP becomes empty output text and an appropriate US assessment or outside-US null. File failures and structural diagnostics should identify their source; the exact failure-handling policy remains to be designed.
+Raw loading preserves source values, including numeric ZIPs, SKU casing, and bundle lines. Schema parsing produces normalized SKU and ZIP strings while leaving source data untouched and preserving bundle quantities. Missing ZIP becomes empty output text and an appropriate US assessment or outside-US null. Loading and validation errors propagate to the CLI, which reports the error message and exits nonzero; they never become empty datasets or PARTNER decisions.
 
 The orders repository reads events. It does not hide complete-order reconstruction inside file access. The zones schema distinguishes warehouse maps from metadata such as `_note`.
 
 ### Order reconstruction and domain rules
 
-The application coordinates reconstruction of complete orders, with order-related rules in `domain/order.ts`. Creation and edit events are connected through their order identifier, and the resulting orders retain creation order.
+The application coordinates reconstruction using `domain/order.ts`. A two-pass reconstruction connects events by order number independently of arrival order, includes additions from creation through 30 minutes inclusive, and returns copied order data. A separate function sorts by creation timestamp without mutating the input list. Both operations preserve all fractional-second digits accepted by the schema: timezone-adjusted whole seconds and zero-padded decimal fractions are compared separately, avoiding `Date.parse`'s millisecond truncation without narrowing input acceptance.
 
-Catalog composition rules belong in `domain/catalog.ts`; the application coordinates their use. This allocation identifies where bundle handling belongs while leaving its behavior open. Warehouse availability and inventory reservation belong in `domain/warehouse.ts`. Candidate evaluation and ranking belong in `domain/routing.ts`.
+`domain/catalog.ts` resolves standalone products and one-level bundles. Bundle count multiplies each component quantity, and direct/bundle/eligible-edit demand is aggregated by canonical product SKU. Only standalone catalog products can be components; expansion never recursively follows bundle references. Original order lines remain unchanged. `domain/routing.ts` evaluates stock eligibility and ranking; `domain/warehouse.ts` applies reservation. All three consume the same aggregated demand, not uncombined event lines. No splitting, bundle-specific stock, or bundle-specific velocity is introduced.
 
 ### Selection, reservation, and output
 
-Selection reads the order and current inventory without reducing stock while evaluating candidates. Reservation applies inventory changes after selection. The application carries the updated inventory through the remaining orders.
+Selection reads current inventory without reducing stock. Zone takes precedence over cover; cover is the minimum pre-reservation `available / dailyVelocity` across requested products. Positive available stock with zero velocity has infinite cover, and direct equality preserves infinite ties. Remaining ties use WH-NJ, WH-GA, WH-NV, WH-TX. Reservation returns a copied inventory state after checking the selected warehouse can fulfill every product. PARTNER routes reserve no internal stock.
 
-Routing returns structured results. The routes repository converts them into the required textual representation and writes `routes.txt`. Business decisions remain independent of filesystem operations and output formatting.
+Routing returns structured results. Domain publication passes them to the routes repository, which prints one tab-separated stdout line per order: number, warehouse or PARTNER, then `zone=N` or fallback reason. Empty results print nothing. The repository does not automatically write `routes.txt`; the workspace artifact was captured with `pnpm --silent start > routes.txt` and verified against the independent oracle. Business decisions remain independent of output formatting.
+
+Publication awaits the stdout write callback rather than the boolean returned by `write`. Callback failures and stream error events reject through the existing domain/application/CLI error path. A temporary listener remains through the current turn after a callback failure because Node can emit a subsequent error event while Bun can report the failure only through the callback; cleanup removes only that listener. Tests exercise delayed completion, asynchronous writable failure, and a real closed stdout pipe.
 
 ## Catalog input contract exploration
 
@@ -239,7 +267,7 @@ For this catalog, the schema structure is shallow and closely follows the suppli
 
 If an internal domain model later differs from these records, it can have its own type and mapping. Schema inference need not dictate the entire domain design.
 
-The eventual repository will use the guarded loader, check and transform the chosen contract, and return its typed output records. Catalog acceptance rules, SKU conversion, and raw loading are implemented; repository integration and application-level error handling remain to be designed. Order reconstruction, bundle stock handling, and routing remain outside this catalog implementation.
+The catalog repository uses the guarded loader, parses the contract, and returns typed output records to domain initialization. Errors propagate to the entry point. Order reconstruction, bundle stock interpretation, and routing remain domain concerns outside the catalog schema.
 
 ### Accepted principle: bounded permissiveness
 
@@ -266,7 +294,7 @@ Rafael accepted the model and asked to proceed with this dataset using reusable 
 
 The root product and bundle arrays may be empty; no minimum catalog size is inferred from the sample. The contract rejects unknown keys and enforces the accepted value bounds and nonempty bundle components. SKU case conversion is explicit; no numeric coercion, trimming, or bundle expansion is introduced.
 
-Nonblank uppercase text alone does not prove that an SKU is meaningful. A value such as `A` still satisfies that basic constraint. Rejecting it requires an agreed identifier grammar or another explicit identifier rule; neither has been invented from the sample. SKU uniqueness and component-reference checks remain separate from the basic record shape. Case-insensitive comparison is accepted; bundle stock handling remains open.
+Nonblank uppercase text alone does not prove that an SKU is meaningful. A value such as `A` still satisfies that basic constraint. Rejecting it requires an agreed identifier grammar or another explicit identifier rule; neither has been invented from the sample. SKU uniqueness and component-reference checks remain separate from the basic record shape. Case-insensitive comparison is accepted; the catalog domain resolver checks that expanded components reference standalone products.
 
 Focused tests cover the supplied catalog, malformed structures, unknown keys at every object level, numeric bounds and types, nonblank text, SKU conversion, and unchanged source objects and unrelated values. They do not establish inventory or routing behavior.
 
@@ -336,7 +364,7 @@ The raw ZIP contract preserves source representations, including numeric `2134`,
 
 Parsing does not reconstruct orders, combine lines, sort events, check uniqueness or creation/edit relationships, or enforce the edit window. Those concerns belong to later processing. Inferred event types allow application code to distinguish creation from edit fields using `type`, while keeping the reconstructed order concept separate.
 
-The [order-event tests](../src/schemas/order.schema.test.ts) check the complete supplied event stream, supported variants, malformed or hybrid shapes, raw-value preservation, timestamps, missing ZIP representation, and item quantities. Loading is handled separately; order reconstruction and routing remain unimplemented.
+The [order-event tests](../src/schemas/order.schema.test.ts) check the complete supplied event stream, supported variants, malformed or hybrid shapes, raw-value preservation, timestamps, missing ZIP representation, and item quantities. Loading, reconstruction, and routing are tested separately in their respective layers.
 
 ## Shared raw JSON loading
 
@@ -372,16 +400,19 @@ Dependencies are recorded in [package.json](../package.json) and resolved versio
 | Command | Purpose at this stage |
 |---|---|
 | `pnpm install --frozen-lockfile` | Install the dependency versions recorded in the lockfile. |
-| `pnpm start` | Invoke the empty entry point using Bun. It does not produce routing results yet. |
+| `pnpm start` | Invoke `routeOrders()` through Bun and print all 26 supplied orders. |
+| `pnpm --silent start > routes.txt` | Capture route lines without pnpm's script banner. |
 | `pnpm typecheck` | Run TypeScript's no-emit check using Bun and the project configuration. |
 | `pnpm test src/schemas` | Run the implemented catalog, order-event, warehouse, zone, and SKU contract tests. |
 | `pnpm test src/schemas src/lib/loader` | Run all implemented input-contract and loader tests. |
 | `pnpm test src/schemas src/lib/loader src/normalization` | Run all implemented input-contract, loader, and SKU/ZIP normalization tests. |
-| `pnpm test` | Invoke all Vitest suites once, including empty domain test placeholders. Full-suite verification is deferred while those modules remain placeholders. |
+| `pnpm test tests/route-orders.integration.test.ts` | Run the supported synthetic scenario through real application layers with only loaders mocked. |
+| `pnpm test tests` | Run standalone/bundle scenarios, real-file final-stock verification, and the real CLI acceptance test. |
+| `pnpm test` | Run all unit and application integration suites; there are no empty domain test placeholders. |
 
 Node must be available for pnpm and Vitest tooling. Bun runs the application and the TypeScript compiler command. The installed Bun version is 1.3.14; the available Node tooling version is 22.15.0.
 
-A temporary Vitest runner check passed under Node 22.15.0. Direct Vitest runs under Bun 1.3.14 timed out, so the configured test command uses Node. The focused input-contract and loader tests now pass with this tooling; application coordination and routing behavior remain unimplemented.
+A temporary Vitest runner check passed under Node 22.15.0. Direct Vitest runs under Bun 1.3.14 timed out, so the configured test command uses Node. The full suite and typechecking now pass with this tooling, including application coordination and the supported routing scenario.
 
 The [Bun runtime documentation](https://bun.sh/docs/runtime) describes direct TypeScript execution. [Vitest's requirements](https://vitest.dev/guide/#adding-vitest-to-your-project) specify its Node tooling requirements. Use the configured test script for Vitest; `bun test` invokes Bun's separate test runner.
 
