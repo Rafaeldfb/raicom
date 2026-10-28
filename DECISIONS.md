@@ -6,7 +6,9 @@ Rafael's accepted engineering choices that materially affect the solution or its
 
 **Decision:** Adopt Rafael's proposed layout separating application coordination, domain rules, file repositories, input schemas, and normalization, with adjacent unit tests and a separate integration-test directory. Establish empty files first.
 
-**Rationale:** The boundaries make data flow and ownership explicit. Empty files were established first while behavioral policies were explored; the later decisions below refine normalization and the direction of repository access. See [the architecture document](docs/ARCHTECTURE.md) for current responsibilities and implementation status.
+**Rationale:** The boundaries make data flow and ownership explicit. Empty files were established first while behavioral policies were explored; the later decisions below refine normalization and the direction of repository access.
+
+**Implemented in:** [architecture layers](docs/ARCHITECTURE.md#layers) and `src/`.
 
 ## Runtime and development tools
 
@@ -16,11 +18,15 @@ Rafael's accepted engineering choices that materially affect the solution or its
 
 The input-contract approach was subsequently reviewed through the catalog comparison and confirmed in the decision below.
 
+**Implemented in:** [development toolchain](docs/development.md#toolchain) and [package.json](package.json).
+
 ## Catalog input contract approach
 
 **Decision:** Use Zod schemas as runtime input contracts and infer the corresponding TypeScript input types rather than maintaining duplicate hand-written input declarations.
 
-**Rationale:** After comparing static types, manual runtime checks, and Zod contracts, Rafael accepted Zod as the preferred approach. Schema inference keeps the executable contract and input type together. See [the catalog comparison](docs/ARCHTECTURE.md#catalog-input-contract-exploration) for the alternatives and trade-offs. The accepted catalog constraints are recorded below.
+**Rationale:** After comparing static types, manual runtime checks, and Zod contracts, Rafael accepted Zod as the preferred approach. Schema inference keeps the executable contract and input type together. See [the catalog comparison](docs/explorations/catalog-input-contract.md) for the alternatives and trade-offs. The accepted catalog constraints are recorded below.
+
+**Implemented in:** [input contracts](docs/input-contracts.md) and `src/schemas/`.
 
 ## Bounded input permissiveness
 
@@ -28,25 +34,33 @@ The input-contract approach was subsequently reviewed through the catalog compar
 
 **Rationale:** Rafael wants contracts that accommodate real input variation without losing useful guarantees. The allowed representations and constraints must follow each field's meaning; this principle does not decide normalization or the three deferred behavioral policies.
 
+**Implemented in:** [input contracts](docs/input-contracts.md).
+
 ## Reusable schema composition
 
 **Decision:** Compose catalog contracts from smaller schemas. Keep the SKU contract in a reusable schema module and share it between product, bundle, and component records. Derive bundles from the product contract and infer exported input types from the schemas.
 
 **Rationale:** Rafael identified SKU as a reusable concept and requested small composable contracts. Sharing the contract keeps its acceptance rules consistent without choosing a normalization policy or duplicating hand-written input types.
 
+**Implemented in:** [schema composition](docs/schemas.md#compose-contracts-from-shared-concepts), [sku.schema.ts](src/schemas/sku.schema.ts), and [catalog.schema.ts](src/schemas/catalog.schema.ts).
+
 ## Catalog field constraints
 
 **Decision:** Require product and bundle arrays, string identifiers and names, nonnegative integer numeric prices, and positive integer numeric component quantities. Reject unknown object fields and blank identifiers/names. Require at least one component per bundle; permit empty root product and bundle arrays. Preserve accepted values without coercion or trimming, except for the subsequently adopted uppercase SKU transformation below.
 
-**Rationale:** Rafael agreed with the catalog model and directed work on this first dataset. The supplied field types are consistent, so no string/number unions are needed here. No identifier grammar or fixed catalog size is inferred from the sample. See [the catalog contract](docs/ARCHTECTURE.md#catalog-contract) for details.
+**Rationale:** Rafael agreed with the catalog model and directed work on this first dataset. The supplied field types are consistent, so no string/number unions are needed here. No identifier grammar or fixed catalog size is inferred from the sample.
 
 The original no-case-change baseline has been superseded for SKUs by [uppercase normalization](ASSUMPTIONS.md#canonical-uppercase-sku-identifiers). Other field constraints remain unchanged.
+
+**Implemented in:** [catalog contract](docs/input-contracts.md#catalog) and [catalog.schema.ts](src/schemas/catalog.schema.ts).
 
 ## Order-event input model
 
 **Decision:** Model the `orders.json` input as a discriminated union of creation and edit events, with shared sub-contracts and inferred event types. Keep the reconstructed order entity separate from the input event contracts.
 
-**Rationale:** Rafael explicitly clarified that the supplied records are order events. Separate event variants make their different required fields visible without mixing complete-order reconstruction into validation. See [the order-event contract](docs/ARCHTECTURE.md#order-event-input-contract) for the implemented structural rules and their limits.
+**Rationale:** Rafael explicitly clarified that the supplied records are order events. Separate event variants make their different required fields visible without mixing complete-order reconstruction into validation.
+
+**Implemented in:** [order-event contract](docs/input-contracts.md#order-events), [order.schema.ts](src/schemas/order.schema.ts), and [order reconstruction](docs/routing.md#order-reconstruction).
 
 ## Shared raw JSON loader placement
 
@@ -54,11 +68,15 @@ The original no-case-change baseline has been superseded for SKUs by [uppercase 
 
 **Rationale:** Rafael selected this location after reviewing the loader created in a side conversation. It preserves the separation between fixtures and executable code and brings the loader and tests under the existing TypeScript project configuration. Dataset URLs remain relative to the loader module, adjusted for its new directory.
 
+**Implemented in:** [ingestion boundary](docs/ARCHITECTURE.md#ingestion-boundary) and [Loader.ts](src/lib/loader/Loader.ts).
+
 ## Guarded JSON ingestion boundary
 
 **Decision:** Use the existing guarded `parseJson` function or dataset loaders before applying Zod contracts to application input JSON. Retain the parser's rejection of `__proto__`, `constructor`, and `prototype` as object keys at any depth. Document direct-schema bypasses as a known limitation without adding more schema guards at this stage.
 
-**Rationale:** Rafael accepted the current coverage and broader reserved-key policy, explaining that `constructor` and `prototype` are not expected SKU keys. Guarded parsing prevents the reviewed silent key loss along the loader path. The restriction concerns object keys, not string values; it does not establish a new SKU value grammar or normalization rule. See [the ingestion boundary](docs/ARCHTECTURE.md#guarded-json-ingestion).
+**Rationale:** Rafael accepted the current coverage and broader reserved-key policy, explaining that `constructor` and `prototype` are not expected SKU keys. Guarded parsing prevents the reviewed silent key loss along the loader path. The restriction concerns object keys, not string values; it does not establish a new SKU value grammar or normalization rule.
+
+**Implemented in:** [ingestion boundary and known limitation](docs/schemas.md#responsibilities-and-ingestion-boundary) and [Loader.ts](src/lib/loader/Loader.ts).
 
 ## SKU transformation at the input boundary
 
@@ -66,7 +84,9 @@ The original no-case-change baseline has been superseded for SKUs by [uppercase 
 
 **Rationale:** Rafael approved Zod transformations to keep this boundary simple and reusable. A separate normalization stage remains a viable alternative but requires callers to remember it. Uppercase conversion alone still infers `string` on both sides; branding supplies a static distinction and does not replace runtime checks. The canonical contract enforces nonblank uppercase strings, preserving the existing acceptance breadth and whitespace behavior without inventing an abbreviation grammar. Schema-derived types avoid duplication at the cost of compile-time coupling to the contracts.
 
-Parsed catalog records and order events remain boundary data; normalization does not reconstruct complete domain orders or prove catalog membership. The earlier collision-rejection recommendation was not adopted. Additional error/result abstractions suggested in the linked discussion are outside this decision. See [schema guidance](docs/schemas.md) for implementation conventions and [ASSUMPTIONS.md](ASSUMPTIONS.md#open-questions) for remaining behavioral questions.
+Parsed catalog records and order events remain boundary data; normalization does not reconstruct complete domain orders or prove catalog membership. The earlier collision-rejection recommendation was not adopted. Additional error/result abstractions suggested in the linked discussion are outside this decision. See [ASSUMPTIONS.md](ASSUMPTIONS.md#open-questions) for remaining behavioral questions.
+
+**Implemented in:** [SKU transformation guide](docs/schemas.md#transform-accepted-representations-into-canonical-values), [sku.schema.ts](src/schemas/sku.schema.ts), and [normalization/sku.ts](src/normalization/sku.ts).
 
 ## Separate postal assessment from source ZIP
 
@@ -81,11 +101,11 @@ type PostalAssessmentOutput =
 
 Recognized output ZIPs are checked through `ZipValueSchema`, retaining complete supported ZIP+4 strings. Their assessment prefix must match output ZIP's first three digits. For example, raw numeric `2134` becomes output `zip: "02134"` with `postalAssessment: { kind: "recognized", prefix: "021" }`, while the input object remains unchanged. `ShipToOutput.zip` is statically `string` across all branches; standalone `ZipValue` and assessment prefixes retain their branded types. Representation conversion applies only after raw structural validation and never adds recognition or repair rules.
 
-**Implementation status:** The [shared ZIP contracts](src/schemas/zip.schema.ts) reject a duplicated assessment value. The pure US helper returns output ZIP and assessment together; a separate pure text helper serves outside-US representation without invoking US recognition. The destination transform composes strict raw validation, country gating, output conversion, and output checks. Prefix correspondence is now checked against sibling output `zip`. Compatibility exports and raw recognition rules are preserved.
-
 Do not use `state` for ZIP inference or cross-checks, normalize country, or trim ZIP strings. Apply the [accepted numeric and string recognition rules](ASSUMPTIONS.md#zip-recognition-and-repair-by-raw-type). US country context establishes applicability, not ZIP correctness. Postal verification, zone lookup, PARTNER selection, and warehouse eligibility/ranking remain outside the assessment and are not implemented here.
 
 **Rationale:** Rafael identified duplication between ZIP and assessment, clarified that parsed output should be normalized, and authorized changing the implementation after confirming the complete string representation. Source preservation and transformed-output preservation are different requirements. This supersedes the earlier raw-valued parsed ZIP contract while retaining exact country matching, no trimming, bounded numeric repair, missing/unrecognized classification, and country bypass. Consume parsed output rather than reparse it as raw source input.
+
+**Implemented in:** [country-aware postal assessment](docs/schemas.md#country-aware-postal-assessment), [zip.schema.ts](src/schemas/zip.schema.ts), [order.schema.ts](src/schemas/order.schema.ts), and [normalization/zip.ts](src/normalization/zip.ts).
 
 ## Routing responsibility and downstream fulfillment
 
@@ -99,11 +119,15 @@ Do not use `state` for ZIP inference or cross-checks, normalize country, or trim
 
 **Rationale:** Rafael wants the assessment rules visible while retaining incremental development and unresolved policies. A handwritten synthetic scenario with [independent calculations](tests/fixtures/cli-routing/README.md) supplied the first completion signal. Empty ranking lists reach fallback, and reservation precedes the next order. After adopting the bundle interpretation below, coverage expanded to bundle scenarios, the real supplied datasets with independently calculated final stock, and the actual `pnpm start` CLI path.
 
+**Implemented in:** [test layout and independent expected outputs](docs/development.md#test-layout) and `tests/`.
+
 ## Domain access to repositories and run-local routing context
 
 **Decision:** Use the dependency flow CLI → application → domain → repositories → loaders and schemas. `routeOrders()` accepts no source arguments and imports only domain modules. Domain initialization calls parameterless repositories and returns parsed events, catalog, zones, and inventory in a fresh `RoutingContext`. The coordinator carries inventory updates through this context and publishes through a domain function that delegates to the routes repository.
 
 **Rationale:** Rafael corrected the previous coordinator's source and repository ownership. Repositories encapsulate ingestion through their respective existing loaders; source paths stay below the domain layer. A context per run avoids global mutable stock and explicit reset machinery. Domain rule functions can still evaluate supplied in-memory records; this design needs neither a service class per rule nor a dependency-injection framework. Repository references to domain output types remain type-only, avoiding a runtime import cycle.
+
+**Implemented in:** [architecture layers](docs/ARCHITECTURE.md#layers), [route-orders.ts](src/application/route-orders.ts), and [routing.ts](src/domain/routing.ts).
 
 ## Component-based bundle fulfillment
 
@@ -115,7 +139,7 @@ Do not use `state` for ZIP inference or cross-checks, normalize country, or trim
 
 **Rationale:** The catalog explicitly defines bundle components, while every warehouse stocks only standalone products and supplies no bundle stock or velocity. Component interpretation uses those supplied values without inventing a separate inventory model. Restrict expansion to components referencing standalone catalog products; nested bundles and unknown references fail explicitly rather than trigger recursive resolution or silently disappear. General unknown-SKU routing behavior remains open. A dedicated bundle-stock model would need additional inventory data.
 
-**Implementation status:** Rafael authorized completing the work using the consolidated bundle understanding. Domain tests, bundle application scenarios, real-file routing/final-stock checks, and a real CLI test pass. The [supplied-data expected output](tests/fixtures/assessment/expected.txt) and [manual ledger](tests/fixtures/assessment/README.md) were established before implementing expansion and are independent of application output. `routes.txt` captures the matching verified CLI output. No recursive bundle resolution, source-data mutation, repository/configuration changes, or new dependencies were introduced.
+**Implemented in:** [product demand and bundles](docs/routing.md#product-demand-and-bundles) and [catalog.ts](src/domain/catalog.ts); verification is recorded in [journal entry 34](JOURNAL.md#34--adopting-bundle-expansion-and-completing-the-supplied-data-run).
 
 ## Proposals
 

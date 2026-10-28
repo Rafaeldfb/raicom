@@ -13,7 +13,7 @@ guarded loader → unknown value → Zod validation and accepted transformations
 
 The [loader](../src/lib/loader/Loader.ts) reads and guards JSON, caches raw values, and returns independent copies typed as `unknown`. It does not invoke schemas or normalization. Parameterless input repositories call their respective loader, apply the composed schema once, and return parsed output. Domain initialization obtains these outputs to create a fresh routing context; the coordinator uses only domain functions and accepts no sources.
 
-Use the guarded loader or `parseJson` before Zod. Plain `JSON.parse`, whether nested inside a schema call or used earlier, bypasses the reserved-key policy. The existing guard rejects `__proto__`, `constructor`, and `prototype` as object keys. Direct schema calls do not supply that protection; see the [known limitation](ARCHTECTURE.md#known-review-limitations).
+Use the guarded loader or `parseJson` before Zod. Plain `JSON.parse`, whether nested inside a schema call or used earlier, bypasses the reserved-key policy. The guard rejects `__proto__`, `constructor`, and `prototype` as object keys at any depth, including keys decoded from JSON escapes. It does not reject those words inside string values or impose a SKU grammar. Direct schema calls do not supply that protection; see the [known limitation](#known-limitation-direct-schema-calls).
 
 Consume the parsed output, not the original raw value:
 
@@ -31,6 +31,12 @@ if (result.success) {
 
 Use `.safeParse()` when the caller needs an explicit success/error branch. Repositories use `.parse()` and propagate failures through the application to the CLI's error reporting. Do not catch validation failures and silently replace them with empty data or routing fallback.
 
+### Known limitation: direct schema calls
+
+With the installed Zod version, dynamic records and catchalls silently drop an own `__proto__` key. For example, an inventory containing `"__proto__": "invalid inventory entry"` parses successfully as an empty inventory; warehouse zone maps and the zones root behave the same way. The entry escapes validation and disappears from the output.
+
+The guarded loader prevents this for application input by rejecting the key before parsing. A schema called on a value parsed elsewhere, including `JSON.parse` in unit tests, still drops it. The supplied datasets contain no such keys, and no schema-level guard is added; see the [ingestion decision](../DECISIONS.md#guarded-json-ingestion-boundary).
+
 ## Compose contracts from shared concepts
 
 Place contracts in `src/schemas/`. Reuse shared value schemas wherever the same concept occurs: `SkuSchema` covers catalog items, bundle components, order lines, and inventory keys. Compose strict objects from field contracts; extend the product contract for bundles and use a discriminated union for order events.
@@ -47,9 +53,9 @@ These are inferred TypeScript types, not an alternative to runtime parsing. Untr
 
 Output records are not automatically complete domain entities. An `OrderEventOutput` remains an event; domain functions handle reconstruction, catalog membership checks, inventory rules, and routing after ingestion.
 
-Event timestamps remain ISO strings with explicit timezone, including arbitrary fractional-second precision accepted by the current contract. Domain ordering and edit-window comparisons must retain those digits; converting the complete timestamp through `Date.parse` alone truncates them to milliseconds. The order domain compares whole seconds and decimal fractions separately. Do not narrow the schema's precision to accommodate a comparison implementation.
+Event timestamps stay ISO strings with every fractional digit the contract accepts. Do not narrow that precision to suit a comparison; the domain compares full precision as described in [order reconstruction](routing.md#order-reconstruction).
 
-Bundle expansion belongs in `domain/catalog.ts`, after complete-order reconstruction. The resolver uses parsed catalog relationships to multiply and aggregate component demand; it does not add a Zod transformation or change source order lines. Current support is one level with standalone-product references. Unknown or nested component references fail explicitly. All routing rules, including lowest zone before cover, consume the resulting product demand unchanged.
+Bundle expansion is a domain rule, not a schema transformation. Schemas keep bundle lines and component records as supplied; see [product demand and bundles](routing.md#product-demand-and-bundles).
 
 ## Transform accepted representations into canonical values
 
@@ -69,7 +75,7 @@ export type Sku = z.output<typeof SkuSchema>;
 
 The initial string contract rejects nonstrings before conversion. [normalizeSku](../src/normalization/sku.ts) uppercases the string. `CanonicalSkuSchema` rejects blank strings, requires uppercase text without converting it, and brands its output as `Sku`. The brand is a static distinction from arbitrary strings; it neither changes the runtime string nor proves catalog membership. Conversion alone is not validation. See [Zod type inference](https://zod.dev/basics#inferring-types), [transforms and pipes](https://zod.dev/api#pipes), and [brands](https://zod.dev/api#branded-types).
 
-SKU comparison is case insensitive through uppercase canonicalization. The current contract preserves surrounding whitespace and does not enforce an abbreviation grammar, fixed prefix, segment length, or numeric suffix. Supplied identifiers include `NW-VITD-60`, `NW-MULTI-30`, and `NW-BNDL-ESS`; do not infer a strict three-letter product segment or numeric-only ending. The complete identifier grammar and unknown-SKU handling remain open.
+SKU comparison is case insensitive through uppercase canonicalization. The contract preserves surrounding whitespace and does not enforce an abbreviation grammar, fixed prefix, segment length, or numeric suffix. Supplied identifiers include `NW-VITD-60`, `NW-MULTI-30`, and `NW-BNDL-ESS`; do not infer a strict three-letter product segment or numeric-only ending. Do not add a grammar or unknown-SKU handling without an adopted interpretation; both are [open questions](../ASSUMPTIONS.md#open-questions).
 
 The assessment assumes distinct identifiers do not collide after uppercasing. No collision refinements are implemented. This is a bounded data assumption, not a guarantee of `z.record`: transforming differently cased keys to the same output key can overwrite an entry. Keep the assumption visible when changing input sources or normalization rules; do not silently describe collisions as detected or rejected.
 
@@ -119,7 +125,7 @@ The source object still has numeric `2134`; the JSON and loader cache are untouc
 
 `ShipToInput.zip` remains `string | number | null | undefined`; `ShipToOutput.zip` is always `string`. Recognized format is validated conditionally; the uniform destination ZIP type does not claim every branch is canonical. Standalone `ZipValueSchema` retains its branded scalar output; `PostalAssessmentOutput` contains branded recognized prefixes. The prefix schema is shared with zone-map keys and re-exported by the zones module. Existing raw ZIP imports remain available from the order module.
 
-Keep output validation as a single strict object with conditional checks. With installed Zod 4.6.7, an output root union can discard upstream unknown-key issues in a pipe; this was independently reproduced while revising the output. Regression tests require rejection of extra source fields, injected assessments, and reparsed enriched outputs. Do not replace this boundary without checking those cases.
+Keep output validation as a single strict object with conditional checks. With the installed Zod version, an output root union can discard upstream unknown-key issues in a pipe. Regression tests require rejection of extra source fields, injected assessments, and reparsed enriched outputs. Do not replace this boundary without checking those cases.
 
 Structural errors remain distinct from assessment results. Booleans, arrays, objects, and nonfinite ZIP numbers fail raw validation for either country branch. Supported unusable US values remain representable as unrecognized. Direct helper calls classify nonfinite numbers as unrecognized, but application ingestion rejects those before normalization. Explicit output text conversion follows raw validation; broad coercion before recognition would change the accepted numeric-versus-string policy.
 
@@ -129,4 +135,4 @@ Domain consumers can use output types through type-only imports. Parse raw input
 
 Keep unit tests beside contracts and normalization functions. Cover supported representations, rejected types and values, canonical output, unchanged unrelated fields, and preservation of source objects. Check shared behavior through catalog records, both event variants, and inventory keys; a standalone helper test does not prove composition. Type assertions should verify that raw strings and branded outputs differ under `pnpm typecheck`.
 
-Use `pnpm test src/schemas src/lib/loader src/normalization` for boundary and normalization tests, followed by `pnpm typecheck`. The full `pnpm test` suite includes domain, repository, and coordinator tests. Synthetic application integration mocks only dataset loaders with raw TypeScript objects, so it exercises real schema transformations but does not exercise guarded file parsing. Existing loader tests verify guarded ingestion and raw cache preservation. Real-file application and CLI tests now cover the supplied datasets separately; their expected results were calculated independently before implementing bundle expansion.
+Use `pnpm test src/schemas src/lib/loader src/normalization` for boundary and normalization tests, followed by `pnpm typecheck`. Loader tests verify guarded ingestion and raw cache preservation; synthetic application tests exercise real schema transformations but not guarded file parsing. The full test layout is in [development.md](development.md#test-layout).
